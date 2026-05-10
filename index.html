@@ -3,217 +3,707 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lake Huron Fetch</title>
+    <title>Great Lakes Fetch &amp; Wave Analysis</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-    crossorigin=""/>
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+        crossorigin=""/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-    crossorigin=""></script>
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        crossorigin=""></script>
     <script src="https://unpkg.com/@turf/turf/turf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
-        html, body {
+        html { height: 100%; }
+        body {
             height: 100%;
             margin: 0;
+            display: flex;
+            font-family: system-ui, -apple-system, sans-serif;
         }
-        #map {
-            width: 100vw;
+        #map { flex: 1 1 auto; min-width: 0; height: 100vh; }
+        #sidebar {
+            width: 340px;
+            flex-shrink: 0;
             height: 100vh;
-            position: relative;
+            overflow-y: auto;
+            background: #1e1e2e;
+            color: #cdd6f4;
+            padding: 12px;
+            box-sizing: border-box;
         }
-        #info-popup {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background: rgba(255, 255, 255, 0.7);
-            color: rgb(86, 84, 84);
-            padding: 10px 15px;
-            border-radius: 5px;
-            font-family: Arial, sans-serif;
-            z-index: 999;
+        .section { margin-bottom: 14px; }
+        .section h3 {
+            margin: 0 0 8px;
+            font-size: 11px;
+            color: #89b4fa;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            border-bottom: 1px solid #313244;
+            padding-bottom: 4px;
+        }
+        .app-title    { font-size: 14px; font-weight: 600; color: #cdd6f4; margin: 0 0 3px; }
+        .app-subtitle { font-size: 10px; color: #585b70; margin: 0; }
+
+        label {
+            display: flex;
+            align-items: center;
+            font-size: 12px;
+            color: #bac2de;
+            margin-bottom: 7px;
+            gap: 8px;
+        }
+        label span.label-text { white-space: nowrap; }
+        input[type=range] { flex: 1; min-width: 0; }
+        select {
+            background: #313244;
+            border: 1px solid #45475a;
+            color: #cdd6f4;
+            border-radius: 4px;
+            padding: 2px 4px;
+            font-size: 11px;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        /* The editable value display */
+        .val-label {
+            font-variant-numeric: tabular-nums;
+            font-size: 12px;
+            color: #cdd6f4;
+            min-width: 44px;
+            text-align: right;
+            white-space: nowrap;
+            cursor: text;
+            user-select: none;
+            flex-shrink: 0;
+        }
+        .val-label:hover { color: #89b4fa; }
+        /* Inline text input that replaces val-label on double-click */
+        .inline-edit {
+            width: 50px;
+            min-width: 50px;
+            background: #313244;
+            border: 1px solid #89b4fa;
+            color: #cdd6f4;
+            border-radius: 4px;
+            padding: 1px 5px;
+            font-size: 12px;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+            flex-shrink: 0;
+            outline: none;
         }
 
+        /* Results table */
+        table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        th {
+            text-align: center;
+            padding: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            color: #6c7086;
+            background: #181825;
+        }
+        th:first-child { text-align: left; }
+        td { padding: 3px 4px; color: #bac2de; }
+        tr:nth-child(even) td { background: #181825; }
+        .fetch-val { color: #f38ba8; font-weight: 600; text-align: center; font-variant-numeric: tabular-nums; }
+        .eff-val   { color: #a6e3a1; font-weight: 600; text-align: center; font-variant-numeric: tabular-nums; }
+        .limit-cell { text-align: center; font-weight: 600; font-size: 11px; }
+        .row-label  { color: #9399b2; }
+        .swatch {
+            display: inline-block;
+            width: 10px; height: 10px;
+            border-radius: 2px;
+            vertical-align: middle;
+            margin-right: 3px;
+        }
+        .swatch-fetch { background: #f38ba8; }
+        .swatch-eff   { background: #a6e3a1; }
+
+        /* Nomogram */
+        #nomogram-wrap { position: relative; width: 100%; height: 255px; }
+        .hint { font-size: 10px; color: #585b70; margin: 4px 0 0; line-height: 1.5; }
+        .dur-legend { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+        .dur-legend-item { font-size: 10px; color: #6c7086; display: flex; align-items: center; gap: 3px; }
+        .dur-line { width: 18px; border-top: 1.5px dashed rgba(147,153,178,0.7); display: inline-block; }
+        .spd-line { width: 18px; border-top: 2px solid #cdd6f4; display: inline-block; }
     </style>
 </head>
 <body>
-    <div id="map" class="leaflet-container leaflet-touch leaflet-retina leaflet-fade-anim leaflet-grab leaflet-touch-drag leaflet-touch-zoom"></div>
-    <div id="info-popup">
-        <p id="wind-angle">Wind Angle: 0</p>
-        <input id="angle-slider" type="range" min="0" max="359" step="1" value="0" />
-        <p id="fetch">Fetch:</p>
-        <p id="effective-fetch-angle">Effective Fetch Angle:</p>
-        <p id="effective-fetch-distance">Effective Fetch Distance:</p>
+<div id="map"></div>
+<div id="sidebar">
+    <div class="section">
+        <p class="app-title">Great Lakes Wave Analysis</p>
+        <p class="app-subtitle">Click inside the lake to compute fetch and USACE SPM wave parameters. Double-click any value to type it in.</p>
     </div>
-    <script>
-        //Set up initial popup
-        const map = L.map('map').setView([45.5, -82.4], 6);
 
-        const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        }).addTo(map);
+    <div class="section">
+        <h3>Wind</h3>
+        <label>
+            <span class="label-text">Direction</span>
+            <input id="angle-slider" type="range" min="-360" max="360" step="1" value="0">
+            <span class="val-label" id="wind-angle-label" title="Double-click to type">0°</span>
+        </label>
+        <label>
+            <span class="label-text">Speed</span>
+            <input id="wind-speed" type="range" min="4" max="180" step="1" value="36">
+            <span class="val-label" id="wind-speed-label" title="Double-click to type">36</span>
+            <select id="speed-unit">
+                <option value="ms">m/s</option>
+                <option value="kmh" selected>km/h</option>
+            </select>
+        </label>
+        <label>
+            <span class="label-text">Duration</span>
+            <input id="duration-slider" type="range" min="1" max="72" step="1" value="24">
+            <span class="val-label" id="duration-label" title="Double-click to type">24 hr</span>
+        </label>
+    </div>
 
-        //Get lake boundaries
-        let lake_boundaries;
+    <div class="section" id="results-section" style="display:none">
+        <h3>Results</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th></th>
+                    <th><span class="swatch swatch-fetch"></span>Fetch</th>
+                    <th><span class="swatch swatch-eff"></span>Eff. Fetch</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td class="row-label">Distance (km)</td>       <td class="fetch-val"  id="r-fetch-dist">—</td>    <td class="eff-val"    id="r-eff-dist">—</td></tr>
+                <tr><td class="row-label">H<sub>m0</sub> (m)</td>  <td class="fetch-val"  id="r-fetch-h">—</td>       <td class="eff-val"    id="r-eff-h">—</td></tr>
+                <tr><td class="row-label">T<sub>m</sub> (s)</td>   <td class="fetch-val"  id="r-fetch-t">—</td>       <td class="eff-val"    id="r-eff-t">—</td></tr>
+                <tr><td class="row-label">Duration limit (hr)</td> <td class="fetch-val"  id="r-fetch-dur">—</td>     <td class="eff-val"    id="r-eff-dur">—</td></tr>
+                <tr><td class="row-label">Travel time (hr)</td>    <td class="fetch-val"  id="r-fetch-travel">—</td>  <td class="eff-val"    id="r-eff-travel">—</td></tr>
+                <tr><td class="row-label">Limiting factor</td>     <td class="limit-cell" id="r-fetch-limit">—</td>   <td class="limit-cell" id="r-eff-limit">—</td></tr>
+            </tbody>
+        </table>
+    </div>
 
-        fetch('great_lakes.geojson')
-            .then(response => response.json())
-            .then(data => {
-                lake_boundaries = data.features[0];
-                L.geoJSON(lake_boundaries).addTo(map);
-            })
-            .catch(error => console.error('Error loading GeoJSON:', error));
+    <div class="section">
+        <h3>Wave Nomogram</h3>
+        <div id="nomogram-wrap">
+            <canvas id="nomogram"></canvas>
+        </div>
+        <div class="dur-legend" id="dur-legend"></div>
+        <p class="hint">
+            Dotted = wind speed curves &nbsp;|&nbsp; Dashed = duration limits<br>
+            <span class="spd-line"></span>&thinsp;Selected speed &nbsp;|&nbsp;
+            <span class="dur-line" style="border-style:solid;border-color:rgba(147,153,178,0.85)"></span>&thinsp;Selected duration<br>
+            Shaded = achievable H for U&thinsp;∈&thinsp;[18,&thinsp;108]&thinsp;km/h and selected duration<br>
+            <span class="swatch swatch-fetch"></span>Fetch&ensp;
+            <span class="swatch swatch-eff"></span>Eff. fetch&ensp;
+            <span style="color:#fab387">■</span>&thinsp;Duration&ensp;
+            <span style="color:#89b4fa">■</span>&thinsp;Fetch&ensp;
+            <span style="color:#cba6f7">■</span>&thinsp;Speed (FDS)
+        </p>
+    </div>
+</div>
 
-        //Check if cursor inside lakes
-        let isInside = false;
+<script>
+// ─── Map ──────────────────────────────────────────────────────────────────────
+const map = L.map('map').setView([45.5, -82.4], 6);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+}).addTo(map);
 
-        map.on('mousemove', function (e) {
-            if (lake_boundaries) {
-                var point = turf.point([e.latlng.lng, e.latlng.lat]);
-                isInside = turf.booleanPointInPolygon(point, lake_boundaries);
+let lake_boundaries = null;
+fetch('great_lakes.geojson')
+    .then(r => r.json())
+    .then(data => {
+        lake_boundaries = data.features[0];
+        L.geoJSON(lake_boundaries, { style: { color: '#89b4fa', weight: 1, fillOpacity: 0 } }).addTo(map);
+    })
+    .catch(err => console.error('Error loading GeoJSON:', err));
+
+let isInside = false;
+map.on('mousemove', e => {
+    if (lake_boundaries)
+        isInside = turf.booleanPointInPolygon(turf.point([e.latlng.lng, e.latlng.lat]), lake_boundaries);
+});
+
+// ─── Editable slider labels ───────────────────────────────────────────────────
+// Double-clicking any .val-label turns it into an inline text input.
+// On Enter / blur the value is parsed, clamped to slider min/max, applied, and
+// the slider's 'input' event is fired so the rest of the UI updates normally.
+function setupEditableLabel(labelId, sliderId) {
+    document.getElementById(labelId).addEventListener('dblclick', function () {
+        const label  = this;
+        const slider = document.getElementById(sliderId);
+
+        const inp = document.createElement('input');
+        inp.type      = 'text';
+        inp.className = 'inline-edit';
+        inp.value     = slider.value;   // raw number, no suffix
+
+        let settled = false;
+        const settle = (apply) => {
+            if (settled) return;
+            settled = true;
+            if (apply) {
+                const v = parseFloat(inp.value);
+                if (!isNaN(v))
+                    slider.value = Math.max(+slider.min, Math.min(+slider.max, v));
             }
-            //document.getElementById("info-popup").innerText = isInside ? "Inside the polygon" : "Outside the polygon";
-        })
+            inp.replaceWith(label);
+            slider.dispatchEvent(new Event('change', { bubbles: true }));
+        };
 
-        //Use slider to change wind angle
-        let wind_angle = 0;
+        inp.addEventListener('keydown', e => {
+            if (e.key === 'Enter')  { e.preventDefault(); settle(true); }
+            if (e.key === 'Escape') settle(false);
+        });
+        inp.addEventListener('blur', () => settle(true));
 
-        const slider = document.getElementById("angle-slider")
-        
-        slider.oninput = function() {
-            document.getElementById("wind-angle").innerText = "Wind Angle: " + this.value
-        }
+        label.replaceWith(inp);
+        inp.focus();
+        inp.select();
+    });
+}
 
-        slider.onchange = function() {
-            wind_angle = parseInt(this.value)
-        }
+setupEditableLabel('wind-angle-label',  'angle-slider');
+setupEditableLabel('wind-speed-label',  'wind-speed');
+setupEditableLabel('duration-label',    'duration-slider');
 
-        //Effective fetch equation
-        function normalizeAngle(angle) {
-            return ((angle % 360) + 360) % 360;
-        }
+// ─── Unit helpers ─────────────────────────────────────────────────────────────
+let speedUnitKmh = true;
 
-        function calculateEffectiveFetch(lake, point, windAngle, angleRange = 90, angleStep = 1, maxFetch = 800) {
-            let fetchDistances = [];
-            let weightSum = 0;
-            let fetchSum = 0;
-            let maxFetchDistance = 0;
-            let dominantAngle = windAngle;
+function getWindSpeedMs() {
+    const v = parseFloat(document.getElementById('wind-speed').value) || 36;
+    return speedUnitKmh ? v / 3.6 : v;
+}
 
-            // Iterate over angles within ±angleRange of the wind direction
-            for (let angleOffset = -angleRange / 2; angleOffset <= angleRange / 2; angleOffset += angleStep) {
-                let angle = windAngle + angleOffset;
-                
-                // Compute destination point along this angle
-                let destination = turf.destination(point, maxFetch, angle, { units: "kilometers" });
-                let line = turf.lineString([point.geometry.coordinates, destination.geometry.coordinates]);
+function formatSpeed(U_ms) {
+    return speedUnitKmh ? `${Math.round(U_ms * 3.6)} km/h` : `${U_ms} m/s`;
+}
 
-                // Intersect line with the lake boundary
-                let intersection = turf.lineIntersect(line, lake);
+document.getElementById('speed-unit').addEventListener('change', function () {
+    const slider = document.getElementById('wind-speed');
+    const cur    = parseFloat(slider.value) || 36;
 
-                if (intersection.features.length > 0) {
-                    let closestIntersection = intersection.features.reduce((closest, current) => {
-                        let distToClosest = turf.distance(point, turf.point(closest.geometry.coordinates));
-                        let distToCurrent = turf.distance(point, turf.point(current.geometry.coordinates));
+    if (this.value === 'kmh' && !speedUnitKmh) {
+        slider.min = 4;  slider.max = 180; slider.step = 1;
+        slider.value = Math.round(cur * 3.6);
+    } else if (this.value === 'ms' && speedUnitKmh) {
+        slider.min = 1;  slider.max = 50;  slider.step = 1;
+        slider.value = Math.round(cur / 3.6);
+    }
+    speedUnitKmh = this.value === 'kmh';
 
-                        // Return the closer intersection
-                        return distToCurrent < distToClosest ? current : closest;
-                    });
+    document.getElementById('wind-speed-label').textContent = slider.value;
+    WIND_SPEEDS.forEach((U_ms, i) => { nomChart.data.datasets[i].label = formatSpeed(U_ms); });
+    updateUserSpeedLine(getWindSpeedMs());
+    nomChart.update();
+});
 
-                    // Fetch distance is the distance to the first intersection point (in kilometers)
-                    let fetchDistance = turf.distance(point, closestIntersection, { units: "kilometers" });
-                    let weight = Math.cos(angleOffset * (Math.PI / 180)) ** 2;
-                    
-                    fetchDistances.push({ distance: fetchDistance, weight: weight, angle: angle });
+// ─── Controls ─────────────────────────────────────────────────────────────────
+let wind_angle = 0;
+let polyDurHr  = 24;
 
-                    // Track max fetch and corresponding angle
-                    if (fetchDistance > maxFetchDistance) {
-                        maxFetchDistance = fetchDistance;
-                        dominantAngle = angle;
-                    }
+document.getElementById('angle-slider').addEventListener('input', function () {
+    wind_angle = parseInt(this.value);
+    document.getElementById('wind-angle-label').textContent = normalizeAngle(wind_angle) + '°';
+});
+document.getElementById('angle-slider').addEventListener('change', function () {
+    wind_angle = parseInt(this.value);
+    document.getElementById('wind-angle-label').textContent = normalizeAngle(wind_angle) + '°';
+    if (lastStartPt) recomputeFromPoint(lastStartPt, lastLakePoly, wind_angle, getWindSpeedMs());
+});
 
-                    // Accumulate weighted sums
-                    fetchSum += fetchDistance * weight;
-                    weightSum += weight;
+document.getElementById('wind-speed').addEventListener('input', function () {
+    document.getElementById('wind-speed-label').textContent = this.value;
+});
+document.getElementById('wind-speed').addEventListener('change', function () {
+    document.getElementById('wind-speed-label').textContent = this.value;
+    const U = getWindSpeedMs();
+    updateUserSpeedLine(U);
+    if (lastFetchDist === null) { nomChart.update(); return; }
+    updateResults(lastFetchDist, lastEffDist, U);
+    updateNomogramMarkers(lastFetchDist, lastEffDist, U);
+});
+
+document.getElementById('duration-slider').addEventListener('input', function () {
+    polyDurHr = parseInt(this.value);
+    document.getElementById('duration-label').textContent = polyDurHr + ' hr';
+});
+document.getElementById('duration-slider').addEventListener('change', function () {
+    polyDurHr = parseInt(this.value);
+    document.getElementById('duration-label').textContent = polyDurHr + ' hr';
+    polygonPoints        = buildPolygon(polyDurHr);
+    userDurDataset.data  = computeDurCurve(polyDurHr);
+    if (lastFetchDist !== null) {
+        updateResults(lastFetchDist, lastEffDist, getWindSpeedMs());
+        updateNomogramMarkers(lastFetchDist, lastEffDist, getWindSpeedMs());
+    } else {
+        nomChart.update();
+    }
+});
+
+// ─── USACE SPM wave equations ─────────────────────────────────────────────────
+// F in metres, U in m/s, t in hr
+//
+// Three limiting regimes:
+//   Duration-limited  – t < t_lim(F,U)  → use effective fetch from duration
+//   Fetch-limited     – t ≥ t_lim AND F < F_FDS(U)
+//   Speed-limited     – t ≥ t_lim AND F ≥ F_FDS(U)  (fully-developed sea)
+//
+// F_FDS is found by setting H_fetch = H_FDS = 0.0275·U²:
+//   0.000363·U^1.23·√F = 0.0275·U²
+//   √F = 75.76·U^0.77  →  F_FDS = 5739·U^1.54  [metres]
+const H_FDS_K = 0.0275;
+const F_FDS_K = 5739;
+
+function calcWaves(F_km, U_ms, t_hr) {
+    const F   = F_km * 1000;
+    const t_s = t_hr * 3600;
+
+    const t_lim = 36.04 * Math.pow(F, 2/3) / Math.pow(U_ms, 0.41);
+    const F_FDS = F_FDS_K * Math.pow(U_ms, 1.54);
+    const H_FDS = H_FDS_K * U_ms * U_ms;
+    const T_FDS = 0.0556  * Math.pow(U_ms, 0.41) * Math.pow(F_FDS, 1/3);
+
+    let H, T, limit;
+
+    if (t_s < t_lim) {
+        const F_eff = Math.pow(t_s * Math.pow(U_ms, 0.41) / 36.04, 1.5);
+        H     = 0.000363 * Math.pow(U_ms, 1.23) * Math.sqrt(F_eff);
+        T     = 0.0556   * Math.pow(U_ms, 0.41) * Math.pow(F_eff, 1/3);
+        limit = 'Duration';
+    } else if (F >= F_FDS) {
+        H     = H_FDS;
+        T     = T_FDS;
+        limit = 'Speed';
+    } else {
+        H     = 0.000363 * Math.pow(U_ms, 1.23) * Math.sqrt(F);
+        T     = 0.0556   * Math.pow(U_ms, 0.41) * Math.pow(F, 1/3);
+        limit = 'Fetch';
+    }
+
+    const Cg    = 9.81 * T / (4 * Math.PI);
+    const tTrav = F / Cg;
+
+    return {
+        H:       H.toFixed(2),
+        T:       T.toFixed(1),
+        tLimHr:  (t_lim  / 3600).toFixed(1),
+        tTravHr: (tTrav  / 3600).toFixed(2),
+        limit
+    };
+}
+
+// ─── Geometry helpers ─────────────────────────────────────────────────────────
+function normalizeAngle(a) { return ((a % 360) + 360) % 360; }
+
+function closestIntersect(features, origin) {
+    return features.reduce((a, b) =>
+        turf.distance(origin, turf.point(a.geometry.coordinates)) <=
+        turf.distance(origin, turf.point(b.geometry.coordinates)) ? a : b
+    );
+}
+
+function computeFetchLine(lake, startPt, angle) {
+    const dest = turf.destination(startPt, 800, angle, { units: 'kilometers' });
+    const line = turf.lineString([startPt.geometry.coordinates, dest.geometry.coordinates]);
+    const ix   = turf.lineIntersect(line, lake);
+    if (!ix.features.length) return null;
+    return turf.lineString([startPt.geometry.coordinates,
+                            closestIntersect(ix.features, startPt).geometry.coordinates]);
+}
+
+function calculateEffectiveFetch(lake, startPt, windAngle) {
+    let fetchSum = 0, weightSum = 0, maxDist = 0, domAngle = windAngle;
+    for (let off = -45; off <= 45; off++) {
+        const dest = turf.destination(startPt, 800, windAngle + off, { units: 'kilometers' });
+        const line = turf.lineString([startPt.geometry.coordinates, dest.geometry.coordinates]);
+        const ix   = turf.lineIntersect(line, lake);
+        if (!ix.features.length) continue;
+        const near = closestIntersect(ix.features, startPt);
+        const d    = turf.distance(startPt, near, { units: 'kilometers' });
+        const w    = Math.cos(off * Math.PI / 180) ** 2;
+        fetchSum += d * w; weightSum += w;
+        if (d > maxDist) { maxDist = d; domAngle = windAngle + off; }
+    }
+    return { distance: weightSum > 0 ? fetchSum / weightSum : 0, angle: domAngle };
+}
+
+// ─── Map layers ───────────────────────────────────────────────────────────────
+let fetchLayer    = null, effFetchLayer = null;
+let lastFetchDist = null, lastEffDist   = null;
+let lastStartPt   = null, lastLakePoly  = null;
+
+const LIMIT_COLORS = { Duration: '#fab387', Fetch: '#89b4fa', Speed: '#cba6f7' };
+
+function setLimitCell(id, limit) {
+    const el       = document.getElementById(id);
+    el.textContent = limit;
+    el.style.color = LIMIT_COLORS[limit] || '#cdd6f4';
+}
+
+function updateResults(fetchDist, effDist, U) {
+    const wF = calcWaves(fetchDist, U, polyDurHr);
+    const wE = calcWaves(effDist,   U, polyDurHr);
+    document.getElementById('results-section').style.display = '';
+    const set = (id, v) => { document.getElementById(id).textContent = v; };
+    set('r-fetch-dist',   fetchDist.toFixed(0));  set('r-eff-dist',     effDist.toFixed(0));
+    set('r-fetch-h',      wF.H);                   set('r-eff-h',        wE.H);
+    set('r-fetch-t',      wF.T);                   set('r-eff-t',        wE.T);
+    set('r-fetch-dur',    wF.tLimHr);              set('r-eff-dur',      wE.tLimHr);
+    set('r-fetch-travel', wF.tTravHr);             set('r-eff-travel',   wE.tTravHr);
+    setLimitCell('r-fetch-limit', wF.limit);
+    setLimitCell('r-eff-limit',   wE.limit);
+}
+
+function recomputeFromPoint(startPt, lake, angle, U) {
+    const fetchLine = computeFetchLine(lake, startPt, angle);
+    if (!fetchLine) return;
+    const fetchDist = turf.length(fetchLine, { units: 'kilometers' });
+
+    if (fetchLayer) map.removeLayer(fetchLayer);
+    fetchLayer = L.geoJSON(fetchLine, { style: { color: '#f38ba8', weight: 2 } }).addTo(map);
+
+    const eff      = calculateEffectiveFetch(lake, startPt, angle);
+    const effAngle = normalizeAngle(eff.angle);
+    const effDist  = eff.distance;
+
+    if (effFetchLayer) map.removeLayer(effFetchLayer);
+    const effEnd = turf.destination(startPt, effDist, effAngle, { units: 'kilometers' });
+    effFetchLayer = L.polyline([
+        [startPt.geometry.coordinates[1], startPt.geometry.coordinates[0]],
+        [effEnd.geometry.coordinates[1],  effEnd.geometry.coordinates[0]]
+    ], { color: '#a6e3a1', weight: 2 }).addTo(map);
+
+    lastFetchDist = fetchDist; lastEffDist = effDist;
+    updateResults(fetchDist, effDist, U);
+    updateNomogramMarkers(fetchDist, effDist, U);
+}
+
+map.on('click', function (e) {
+    if (!isInside || !lake_boundaries) return;
+    lastStartPt  = turf.point([e.latlng.lng, e.latlng.lat]);
+    lastLakePoly = turf.multiPolygon(lake_boundaries.geometry.coordinates);
+    recomputeFromPoint(lastStartPt, lastLakePoly, wind_angle, getWindSpeedMs());
+});
+
+// ─── Nomogram datasets ────────────────────────────────────────────────────────
+const WIND_SPEEDS  = [5, 10, 15, 20, 25, 30];
+const WIND_COLORS  = ['#74c7ec', '#89b4fa', '#a6e3a1', '#f9e2af', '#fab387', '#f38ba8'];
+const DURATIONS_HR = [1, 3, 6, 12, 24];
+const POLY_U_MIN   = WIND_SPEEDS[0];
+const POLY_U_MAX   = WIND_SPEEDS[WIND_SPEEDS.length - 1];
+const POLY_T_MIN   = 1;
+
+function logSpace(lo, hi, n) {
+    const a = Math.log10(lo), b = Math.log10(hi);
+    return Array.from({ length: n }, (_, i) => Math.pow(10, a + i * (b - a) / (n - 1)));
+}
+
+const F_km_pts = logSpace(1, 2000, 120);
+const U_sweep  = logSpace(1, 50, 100);
+
+function hFetchLim(U_ms, F_km) {
+    return 0.000363 * Math.pow(U_ms, 1.23) * Math.sqrt(F_km * 1000);
+}
+
+// Fixed dotted wind-speed curves
+const windDatasets = WIND_SPEEDS.map((U, i) => ({
+    label:           formatSpeed(U),
+    data:            F_km_pts.map(Fkm => ({ x: Fkm, y: hFetchLim(U, Fkm) })),
+    borderColor:     WIND_COLORS[i],
+    backgroundColor: 'transparent',
+    borderWidth:     1.5,
+    borderDash:      [3, 3],
+    pointRadius:     0,
+    showLine:        true,
+    tension:         0
+}));
+
+// Fixed dashed duration-limit curves
+function computeDurCurve(dur_hr) {
+    const t_s = dur_hr * 3600;
+    return U_sweep.flatMap(U => {
+        const F_m  = Math.pow(t_s * Math.pow(U, 0.41) / 36.04, 1.5);
+        const F_km = F_m / 1000;
+        const H    = 0.000363 * Math.pow(U, 1.23) * Math.sqrt(F_m);
+        return (F_km >= 1 && F_km <= 2000 && H >= 0.05 && H <= 20) ? [{ x: F_km, y: H }] : [];
+    });
+}
+
+const durDatasets = DURATIONS_HR.map(dur => ({
+    label:           `${dur} hr`,
+    data:            computeDurCurve(dur),
+    borderColor:     'rgba(147,153,178,0.45)',
+    backgroundColor: 'transparent',
+    borderWidth:     1,
+    borderDash:      [8, 4],
+    pointRadius:     0,
+    showLine:        true,
+    tension:         0
+}));
+
+// Solid white line for user-selected speed
+const userSpeedDataset = {
+    label:           formatSpeed(getWindSpeedMs()),
+    data:            F_km_pts.map(Fkm => ({ x: Fkm, y: hFetchLim(getWindSpeedMs(), Fkm) })),
+    borderColor:     '#cdd6f4',
+    backgroundColor: 'transparent',
+    borderWidth:     2,
+    borderDash:      [],
+    pointRadius:     0,
+    showLine:        true,
+    tension:         0
+};
+
+// Solid gray line for user-selected duration
+const userDurDataset = {
+    label:           '_userDur',
+    data:            computeDurCurve(polyDurHr),
+    borderColor:     'rgba(147,153,178,0.85)',
+    backgroundColor: 'transparent',
+    borderWidth:     2,
+    borderDash:      [],
+    pointRadius:     0,
+    showLine:        true,
+    tension:         0
+};
+
+// Scatter markers — show actual H (may be below the speed line when duration-limited)
+const markerDataset = {
+    label:           '_markers',
+    data:            [],
+    backgroundColor: ['#f38ba8', '#a6e3a1'],
+    borderColor:     '#1e1e2e',
+    borderWidth:     1.5,
+    pointRadius:     7,
+    showLine:        false
+};
+
+const N_WIND       = WIND_SPEEDS.length;
+const N_DUR        = DURATIONS_HR.length;
+const IDX_USER_SPD = N_WIND + N_DUR;   // index of userSpeedDataset in the datasets array
+
+// ─── Feasibility polygon ─────────────────────────────────────────────────────
+let polygonPoints = [];
+
+function F_crit_km(U_ms, t_s) {
+    return Math.pow(t_s * Math.pow(U_ms, 0.41) / 36.04, 1.5) / 1000;
+}
+
+function buildPolygon(t_max_hr) {
+    const t_min_s = POLY_T_MIN * 3600;
+    const t_max_s = t_max_hr  * 3600;
+    const U_pts   = logSpace(POLY_U_MIN, POLY_U_MAX, 60);
+    const pts     = [];
+
+    for (const U of U_pts) {
+        const F_km = F_crit_km(U, t_min_s);
+        pts.push({ x: F_km, y: hFetchLim(U, F_km) });
+    }
+    const F_B = F_crit_km(POLY_U_MAX, t_min_s), F_C = F_crit_km(POLY_U_MAX, t_max_s);
+    for (const F_km of logSpace(F_B, F_C, 40))
+        pts.push({ x: F_km, y: hFetchLim(POLY_U_MAX, F_km) });
+
+    for (const U of [...U_pts].reverse()) {
+        const F_km = F_crit_km(U, t_max_s);
+        pts.push({ x: F_km, y: hFetchLim(U, F_km) });
+    }
+    const F_D = F_crit_km(POLY_U_MIN, t_max_s), F_A = F_crit_km(POLY_U_MIN, t_min_s);
+    for (const F_km of logSpace(F_A, F_D, 40).reverse())
+        pts.push({ x: F_km, y: hFetchLim(POLY_U_MIN, F_km) });
+
+    return pts;
+}
+
+polygonPoints = buildPolygon(polyDurHr);
+
+// ─── Polygon canvas plugin ────────────────────────────────────────────────────
+function drawPolygonToCanvas(chart, doFill, doStroke) {
+    if (polygonPoints.length < 3) return;
+    const { ctx, scales: { x, y }, chartArea: ca } = chart;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(ca.left, ca.top, ca.width, ca.height); ctx.clip();
+    ctx.beginPath();
+    polygonPoints.forEach((pt, i) => {
+        const px = x.getPixelForValue(pt.x), py = y.getPixelForValue(pt.y);
+        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    });
+    ctx.closePath();
+    if (doFill)   { ctx.fillStyle = 'rgba(137,180,250,0.08)'; ctx.fill(); }
+    if (doStroke) { ctx.strokeStyle = 'rgba(137,180,250,0.38)'; ctx.lineWidth = 1.5; ctx.setLineDash([]); ctx.stroke(); }
+    ctx.restore();
+}
+
+const polygonPlugin = {
+    id: 'wavePolygon',
+    beforeDatasetsDraw(chart) { drawPolygonToCanvas(chart, true,  false); },
+    afterDatasetsDraw(chart)  { drawPolygonToCanvas(chart, false, true);  }
+};
+
+// ─── Chart ────────────────────────────────────────────────────────────────────
+const nomCtx   = document.getElementById('nomogram').getContext('2d');
+const nomChart = new Chart(nomCtx, {
+    type:    'scatter',
+    plugins: [polygonPlugin],
+    data:    { datasets: [...windDatasets, ...durDatasets, userSpeedDataset, userDurDataset, markerDataset] },
+    options: {
+        animation: false,
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+            x: {
+                type: 'logarithmic', min: 1, max: 2000,
+                title: { display: true, text: 'Fetch (km)', color: '#bac2de', font: { size: 10 } },
+                ticks: { color: '#bac2de', font: { size: 9 },
+                    callback: v => [1,2,5,10,20,50,100,200,500,1000,2000].includes(+v) ? +v : '' },
+                grid: { color: '#313244' }
+            },
+            y: {
+                type: 'logarithmic', min: 0.05, max: 20,
+                title: { display: true, text: 'Hm0 (m)', color: '#bac2de', font: { size: 10 } },
+                ticks: { color: '#bac2de', font: { size: 9 },
+                    callback: v => [0.1,0.2,0.5,1,2,5,10,20].includes(+(+v).toFixed(2)) ? +v : '' },
+                grid: { color: '#313244' }
+            }
+        },
+        plugins: {
+            legend: {
+                labels: {
+                    color: '#bac2de', font: { size: 9 }, boxWidth: 14, padding: 6,
+                    filter: item => item.datasetIndex < N_WIND || item.datasetIndex === IDX_USER_SPD
                 }
-            }
-
-            // Compute weighted effective fetch (in kilometers)
-            let effectiveFetch = weightSum > 0 ? fetchSum / weightSum : 0;
-
-            return { "distance": effectiveFetch, "angle": dominantAngle };
+            },
+            tooltip: { enabled: false }
         }
+    }
+});
 
-        //Add fetch and effective fetch layers
-        let fetchLayer = null;
-        let effectiveFetchLayer = null;
+(function () {
+    const el = document.getElementById('dur-legend');
+    DURATIONS_HR.forEach(dur => {
+        const d = document.createElement('div');
+        d.className = 'dur-legend-item';
+        d.innerHTML = `<span class="dur-line"></span>${dur} hr`;
+        el.appendChild(d);
+    });
+})();
 
-        map.on("click", function (e) {
-            if (isInside) {
-                let startPoint = turf.point([e.latlng.lng, e.latlng.lat])
-                let distance = 700
-                let endPoint = turf.destination(startPoint, distance, wind_angle, { units: 'kilometers' });
+// ─── Live nomogram updates ─────────────────────────────────────────────────────
+function updateUserSpeedLine(U_ms) {
+    userSpeedDataset.data  = F_km_pts.map(Fkm => ({ x: Fkm, y: hFetchLim(U_ms, Fkm) }));
+    userSpeedDataset.label = formatSpeed(U_ms);
+}
 
-                let line = turf.lineString([
-                    startPoint.geometry.coordinates,
-                    endPoint.geometry.coordinates
-                ]);
-
-                // L.geoJSON(line, { color: 'red' }).addTo(map);
-
-                let lakeBoundary = turf.multiPolygon(lake_boundaries.geometry.coordinates);
-                let intersection = turf.lineIntersect(line, lakeBoundary);
-
-                if (intersection.features.length > 0) {
-                    let closestIntersection = intersection.features.reduce((closest, current) => {
-                        let distToClosest = turf.distance(startPoint, turf.point(closest.geometry.coordinates));
-                        let distToCurrent = turf.distance(startPoint, turf.point(current.geometry.coordinates));
-
-                        // Return the closer intersection
-                        return distToCurrent < distToClosest ? current : closest;
-                    });
-
-                    let finalLine = turf.lineString([
-                        startPoint.geometry.coordinates,
-                        closestIntersection.geometry.coordinates
-                    ]);
-
-                    // Add fetch layer to map
-                    if (fetchLayer) {
-                        map.removeLayer(fetchLayer);
-                    }
-                    fetchLayer = L.geoJSON(finalLine, { color: 'red' }).addTo(map);
-
-                    // Add fetch to popup
-                    let finalLineLength = turf.length(finalLine, {units: 'kilometers'})
-                    document.getElementById("fetch").innerText = "Fetch: " + parseInt(finalLineLength) + " km"
-
-                    // Add effective fetch angle, distance to popup
-                    const effectiveFetchParams = calculateEffectiveFetch(lakeBoundary, startPoint, wind_angle)
-                    const effectiveFetchAngle = normalizeAngle(effectiveFetchParams["angle"])
-                    const effectiveFetchDistance = effectiveFetchParams["distance"]
-                    document.getElementById("effective-fetch-angle").innerText = "Effective Fetch Angle: " + parseInt(effectiveFetchAngle) 
-                    document.getElementById("effective-fetch-distance").innerText = "Effective Fetch Distance: " + parseInt(effectiveFetchDistance) + " km"
-
-                    //Add effective fetch layer to map
-                    if (effectiveFetchLayer) {
-                        map.removeLayer(effectiveFetchLayer);
-                    }
-
-                    const effective_fetch_endpoint = turf.destination(startPoint, effectiveFetchDistance, effectiveFetchAngle, { units: "kilometers" });
-                    effectiveFetchLayer = L.polyline(
-                        [
-                            [startPoint.geometry.coordinates[1], startPoint.geometry.coordinates[0]], // Start point (Lat, Lng)
-                            [effective_fetch_endpoint.geometry.coordinates[1], effective_fetch_endpoint.geometry.coordinates[0]] // End point (Lat, Lng)
-                        ],
-                        { color: "yellow"}
-                    ).addTo(map);
-                } else {
-                    alert("No intersection found!");
-                }
-            }
-        })
-
-    </script>
+function updateNomogramMarkers(fetchKm, effKm, U) {
+    const wF = calcWaves(fetchKm, U, polyDurHr);
+    const wE = calcWaves(effKm,   U, polyDurHr);
+    markerDataset.data = [
+        { x: fetchKm, y: parseFloat(wF.H) },
+        { x: effKm,   y: parseFloat(wE.H) }
+    ];
+    nomChart.update();
+}
+</script>
 </body>
 </html>
